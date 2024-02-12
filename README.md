@@ -17,3 +17,4 @@ Amazon Aurora Global cluster
 ###   aws cloudformation --region us-east-2 create-stack --stack-name rds-east --template-body file://rds-stack.yaml --parameters ParameterKey=MasterUserPassword,ParameterValue=*****
 
 
+![alt text](https://github.com/mjai39/Aurora-DBCluster/blob/main/DBDisaster.jpeg?raw=true)
