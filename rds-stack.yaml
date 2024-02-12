@@ -1,0 +1,217 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Aurora Global database cluster.
+Parameters:
+  VPCWEST:
+    Default: "vpc-0ff48d0d90774c8c7"
+    Description: The VPC within your account.
+    Type: String   
+  VPCEAST:
+    Default: "vpc-05afae5d670331383"
+    Description: The VPC within your account.
+    Type: String   
+  DBName:
+    Default: DEVOPSDB
+    Description: The default database name
+    Type: String
+  MasterUsername:
+    Description: Master DB username
+    Type: String
+    Default: postgresql
+  MasterUserPassword:
+    Description: Master DB Password
+    Type: String
+    NoEcho: true
+  DBVersion:
+    Default: 14.6
+    Description: Database version
+    Type: String
+    AllowedValues:
+      - 15.4
+      - 14.6
+      - 16.1
+  storageType:
+    Default: gp2
+    Description: Storage type, defaults to gp2
+    Type: String
+  DBAllocatedStorage:
+    Default: '50'
+    Description: The size of the database (Gb)
+    Type: Number
+    MinValue: '10'
+    MaxValue: '1024'
+    ConstraintDescription: must be between 5 and 1024Gb.
+  DBInstanceClass:
+    Description: The database instance type
+    Type: String
+    Default: db.r5.large
+  MultiAZ:
+    Description: Multi-AZ master database
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    ConstraintDescription: must be true or false.    
+
+Conditions:
+  UsWest: !Equals 
+    - !Ref "AWS::Region"
+    - "us-west-2"
+  UsEast: !Equals 
+    - !Ref "AWS::Region"
+    - "us-east-2"
+
+Resources:
+#DB Subnet Group for us-west
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Condition: UsWest
+    Properties:
+      DBSubnetGroupDescription: Subnet group for Aurora
+      SubnetIds:
+        - subnet-01673cb75a238d20a
+        - subnet-0420d8350a07f2b67
+        - subnet-0605670a9981a4645
+
+#DB Subnet Group for us-east
+  DBSubnetGroupEast:
+    Type: AWS::RDS::DBSubnetGroup
+    Condition: UsEast
+    Properties:
+      DBSubnetGroupDescription: Subnet group for Aurora
+      SubnetIds:
+        - subnet-0e964e7cd48c90d55
+        - subnet-0822e365bfdb1e207
+        - subnet-0e8de26f9aedbe0b2
+
+#Create Global Cluster in us-west-2 region
+  GlobalCluster:
+    Condition: UsWest
+    DependsOn:
+      - "AuroraPrimaryInstance"
+    Type: 'AWS::RDS::GlobalCluster'
+    Properties:
+      GlobalClusterIdentifier: devops-db-global-cluster
+      SourceDBClusterIdentifier: !Ref AuroraPrimaryCluster
+
+# Create RDS DB Primary Cluster resource
+  AuroraPrimaryCluster:
+    Type: AWS::RDS::DBCluster
+    Condition: UsWest
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: !Ref DBVersion
+      Port: 5432
+      DatabaseName: !Ref DBName
+      MasterUsername: !Ref MasterUsername
+      MasterUserPassword: !Ref MasterUserPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds:
+        - !GetAtt DBSecurityGroup.GroupId
+      Tags:
+        - Key: Name
+          Value: !Ref DBName
+
+#Create RDS DB Primary instance and add with Aurora Cluster 
+  AuroraPrimaryInstance:
+    Type: AWS::RDS::DBInstance
+    Condition: UsWest
+    Properties:
+      DBClusterIdentifier: !Ref AuroraPrimaryCluster
+      Engine: aurora-postgresql
+      DBInstanceClass: !Ref DBInstanceClass
+      PubliclyAccessible: false
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      MonitoringInterval: 5
+      MonitoringRoleArn: !GetAtt 'EnhanceMonitoringRole.Arn' 
+
+# Create RDS DB Secondary Cluster resource
+  AuroraSecondaryCluster:
+    Type: 'AWS::RDS::DBCluster'
+    Condition: UsEast
+    Properties:
+      GlobalClusterIdentifier: devops-db-global-cluster
+      AutoMinorVersionUpgrade: 'false'
+      Engine: aurora-postgresql
+      SourceRegion: us-east-2
+      VpcSecurityGroupIds: 
+        - !Ref DBSecurityGroupEast
+      DBSubnetGroupName: !Ref DBSubnetGroupEast
+      EngineVersion: !Ref DBVersion
+      Port: 5432
+      DeletionProtection: 'true'
+      DBClusterParameterGroupName: !Ref RDSDBClusterParameterGroupEast
+
+#Create RDS DB Secondary instance and add with Aurora Cluster 
+  AuroraSecondaryInstance:
+    Type: 'AWS::RDS::DBInstance'
+    Condition: UsEast
+    Properties:
+      Engine: aurora-postgresql
+      DBClusterIdentifier: !Ref AuroraSecondaryCluster
+      PubliclyAccessible: 'false'
+      DBInstanceClass: !Ref 'DBInstanceClass' 
+      AutoMinorVersionUpgrade: 'false'
+      MonitoringInterval: 5
+      MonitoringRoleArn: !GetAtt 'EnhanceMonitoringRole.Arn'  
+# Create DB security Group for access database for us-west
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: UsWest
+    Properties:
+      GroupDescription: Allow database access
+      VpcId: !Ref VPCWEST
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '5432'
+          ToPort: '5432'
+          CidrIp: 10.0.0.0/16
+# Create DB security Group for access database for us-east
+  DBSecurityGroupEast:
+    Type: AWS::EC2::SecurityGroup
+    Condition: UsEast
+    Properties:
+      GroupDescription: Allow database access
+      VpcId: !Ref VPCEAST
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '5432'
+          ToPort: '5432'
+          CidrIp: 10.1.0.0/16
+
+# Create Cluster Parameter Group for west region
+  RDSDBClusterParameterGroupWest:
+    Type: AWS::RDS::DBClusterParameterGroup 
+    Condition: UsWest  
+    Properties:
+      Description: Custom Parameter group for Aurora PostgreSQL cluster
+      Family: aurora-postgresql14
+      Parameters:
+        rds.force_ssl: 1
+
+# Create Cluster Parameter Group for east region
+  RDSDBClusterParameterGroupEast:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Condition: UsEast  
+    Properties:
+      Description: Custom Parameter group for Aurora PostgreSQL cluster
+      Family: aurora-postgresql14
+      Parameters:
+        rds.force_ssl: 1 
+
+# Create IAM role for enhanced monitoring
+  EnhanceMonitoringRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - monitoring.rds.amazonaws.com
+            Action: 
+              - 'sts:AssumeRole'
+      Path: / 
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole'
