@@ -145,7 +145,6 @@ Resources:
       DBSubnetGroupName: !Ref DBSubnetGroupEast
       EngineVersion: !Ref DBVersion
       Port: 5432
-      DeletionProtection: 'true'
       DBClusterParameterGroupName: !Ref RDSDBClusterParameterGroupEast
 
 #Create RDS DB Secondary instance and add with Aurora Cluster 
