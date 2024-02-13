@@ -21,6 +21,10 @@ Parameters:
     Description: Master DB Password
     Type: String
     NoEcho: true
+  LatestAmiId:
+    Description: "The ID of the AMI to use for the EC2 instance"
+    Type: String
+    Default: 'ami-01e82af4e524a0aa3'
   DBVersion:
     Default: 14.6
     Description: Database version
@@ -44,6 +48,10 @@ Parameters:
     Description: The database instance type
     Type: String
     Default: db.r5.large
+  EC2InstanceClass:
+    Description: The database instance type
+    Type: String
+    Default: t2.small
   MultiAZ:
     Description: Multi-AZ master database
     Type: String
@@ -71,7 +79,6 @@ Resources:
       SubnetIds:
         - subnet-01673cb75a238d20a
         - subnet-0420d8350a07f2b67
-        - subnet-0605670a9981a4645
 
 #DB Subnet Group for us-east
   DBSubnetGroupEast:
@@ -82,7 +89,6 @@ Resources:
       SubnetIds:
         - subnet-0e964e7cd48c90d55
         - subnet-0822e365bfdb1e207
-        - subnet-0e8de26f9aedbe0b2
 
 #Create Global Cluster in us-west-2 region
   GlobalCluster:
@@ -215,3 +221,32 @@ Resources:
       Path: / 
       ManagedPolicyArns:
         - 'arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole'
+
+# Create Ec2 Instace on us-west-2 region to validate the application connectivity
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Condition: UsWest
+    Properties:
+      InstanceType: !Ref 'EC2InstanceClass'
+      SecurityGroupIds: 
+        - !Ref InstanceSecurityGroup 
+      SubnetId: 'subnet-086f7af741c4b0dc6'
+      KeyName: 'jm1'
+      ImageId: !Ref 'LatestAmiId'
+      Tags: 
+        - Key: Name
+          Value: 'Test Instance'
+  
+ # EC2 Security group     
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: UsWest
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      VpcId: !Ref VPCWEST
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
